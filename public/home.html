@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home Page</title>
+</head>
+<body>
+  <h1 id="welcome-message"></h1>
+  <button id="logout-button">Logout</button>
+  <script>
+    // Check authentication by making a request to a protected endpoint
+    fetch('/protected', {
+      method: 'GET',
+      credentials: 'include' // Include cookies in the request
+    })
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      } else {
+        throw new Error('Not authenticated');
+      }
+    })
+    .then(data => {
+      document.getElementById('welcome-message').innerText = 'Welcome, authenticated user!';
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      window.location.href = '/index.html';
+    });
+
+    // Logout function
+    document.getElementById('logout-button').addEventListener('click', () => {
+      fetch('/logout', {
+        method: 'POST',
+        credentials: 'include' // Include cookies in the request
+      })
+      .then(response => {
+        if (response.ok) {
+          window.location.href = '/index.html';
+        } else {
+          console.error('Logout failed');
+        }
+      })
+      .catch(error => {
+        console.error("Error:", error);
+      });
+    });
+  </script>
+</body>
+</html>
