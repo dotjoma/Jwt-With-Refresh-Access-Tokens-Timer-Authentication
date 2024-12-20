@@ -16,6 +16,56 @@
     <br>
     <button type="submit">Register</button>
   </form>
-  <script src="client.js"></script>
+  <script>
+    let csrfToken;
+
+    // Fetch CSRF token and store it in a variable
+    fetch("/csrf-token", {
+      method: "GET",
+      credentials: "include",
+    })
+    .then((response) => response.json())
+    .then((data) => {
+      csrfToken = data.csrfToken;
+    })
+    .catch((error) => {
+      console.error("Error fetching CSRF token:", error);
+    });
+
+    document.getElementById("register-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("register-username").value;
+      const password = document.getElementById("register-password").value;
+
+      try {
+        const response = await fetch("/register", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "CSRF-Token": csrfToken // Include CSRF token in the request headers
+          },
+          body: JSON.stringify({ username, password }),
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText);
+        }
+
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          const result = await response.json();
+          alert(result.message);
+          window.location.href = "/login.html";
+        } else {
+          throw new Error("Response is not JSON");
+        }
+      } catch (error) {
+        console.error("Registration failed:", error);
+        alert("An error occurred. Please try again.");
+      }
+    });
+  </script>
 </body>
 </html>

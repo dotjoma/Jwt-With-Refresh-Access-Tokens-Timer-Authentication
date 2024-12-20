@@ -5,14 +5,28 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const mysql = require("mysql2");
 const path = require("path");
+const csrf = require("csurf");
 require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
 app.use(express.json());
 app.use(cookieParser());
+app.use(cookieParser());
 
 const SECRET_KEY = process.env.SECRET_KEY;
+const REFRESH_SECRET_KEY = process.env.REFRESH_SECRET_KEY;
+
+// Setup CSRF protection middleware
+const csrfProtection = csrf({ cookie: true });
+
+// Apply CSRF protection to all POST routes
+app.use(csrfProtection);
+
+// Route to get CSRF token
+app.get("/csrf-token", (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
 
 // MySQL connection
 const connection = mysql.createConnection({
@@ -38,8 +52,7 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// Register endpoint
-app.post("/register", async (req, res) => {
+app.post("/register", csrfProtection, async (req, res) => {
   const { username, password } = req.body;
 
   // Validate input
@@ -73,7 +86,9 @@ app.post("/register", async (req, res) => {
             return res.status(500).json({ error: "Error registering user" });
           }
           console.log(`[INFO] User registered: ${username}`);
-          res.status(201).json({ message: "User registered successfully" });
+          res
+            .status(201)
+            .json({ message: "Registration successful. Please log in." });
         }
       );
     }
@@ -81,7 +96,7 @@ app.post("/register", async (req, res) => {
 });
 
 // Login endpoint
-app.post("/login", async (req, res) => {
+app.post("/login", csrfProtection, async (req, res) => {
   const { username, password } = req.body;
 
   // Validate input
@@ -110,42 +125,102 @@ app.post("/login", async (req, res) => {
         return res.status(400).json({ error: "Invalid credentials" });
       }
 
-      // Generate JWT
-      const token = jwt.sign({ username: user.username }, SECRET_KEY, {
-        expiresIn: "1h",
+      // Generate Access Token
+      const accessToken = jwt.sign({ username: user.username }, SECRET_KEY, {
+        expiresIn: "24h", // Access token expires in 15 minutes
       });
-      console.log(`[INFO] Token generated for user: ${username}`);
-      res.cookie("token", token, {
+
+      // Generate Refresh Token
+      const refreshToken = jwt.sign(
+        { username: user.username },
+        REFRESH_SECRET_KEY,
+        {
+          expiresIn: "7d", // Refresh token expires in 7 days
+        }
+      );
+
+      console.log(`[INFO] Tokens generated for user: ${username}`);
+      console.log(`[INFO] Access Token: ${accessToken}`);
+      console.log(`[INFO] Refresh Token: ${refreshToken}`);
+
+      res.cookie("accessToken", accessToken, {
         httpOnly: true,
         secure: true,
         sameSite: "Strict",
       });
-      res.json({ message: "Login successful" });
+      res.cookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "Strict",
+      });
+      res.json({ message: "Login successful", accessToken });
     }
   );
 });
 
+// Refresh token endpoint
+app.post("/refresh-token", csrfProtection, (req, res) => {
+  const { refreshToken } = req.cookies;
+
+  if (!refreshToken) {
+    return res.status(401).json({ error: "Refresh token not provided" });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, REFRESH_SECRET_KEY);
+    const accessToken = jwt.sign({ username: decoded.username }, SECRET_KEY, {
+      expiresIn: "24h",
+    });
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+    });
+    res.json({ message: "Access token refreshed", accessToken });
+    console.log(`Access token refreshed for: ${decoded.username}`);
+  } catch (err) {
+    res.status(401).json({ error: "Invalid refresh token" });
+  }
+});
+
 // Logout endpoint
-app.post("/logout", (req, res) => {
+app.post("/logout", csrfProtection, (req, res) => {
+  // Clear the access token and refresh token cookies
+  res.clearCookie("accessToken", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Strict",
+  });
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Strict",
+  });
+
+  // Optionally clear any other cookies related to authentication
   res.clearCookie("token", {
     httpOnly: true,
     secure: true,
     sameSite: "Strict",
   });
+
   res.json({ message: "Logout successful" });
 });
 
 // Protected endpoint example
-app.get("/protected", (req, res) => {
-  const token = req.cookies.token;
-  if (!token) {
-    return res.status(401).json({ error: "Not authenticated" });
+app.get("/protected", csrfProtection, (req, res) => {
+  const { accessToken } = req.cookies;
+
+  if (!accessToken) {
+    return res.status(401).json({ error: "Access token not provided" });
   }
+
   try {
-    const decoded = jwt.verify(token, SECRET_KEY);
-    res.json({ message: "Authenticated", user: decoded });
+    const decoded = jwt.verify(accessToken, SECRET_KEY);
+    res.json({ message: "Protected content", user: decoded });
   } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+    console.error("Error verifying access token:", err);
+    res.status(401).json({ error: "Invalid access token" });
   }
 });
 

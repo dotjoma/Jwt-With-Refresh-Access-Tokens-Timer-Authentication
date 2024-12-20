@@ -7,6 +7,7 @@
 </head>
 <body>
   <h1>Login</h1>
+  <div id="message"></div>
   <form id="login-form">
     <label for="login-username">Username:</label>
     <input type="text" id="login-username" name="username" required>
@@ -16,6 +17,66 @@
     <br>
     <button type="submit">Login</button>
   </form>
-  <script src="client.js"></script>
+  <script>
+    let csrfToken;
+
+    // Fetch CSRF token and store it in a variable
+    fetch("/csrf-token", {
+      method: "GET",
+      credentials: "include",
+    })
+    .then((response) => response.json())
+    .then((data) => {
+      csrfToken = data.csrfToken;
+      console.log("CSRF token fetched:", csrfToken);
+    })
+    .catch((error) => {
+      console.error("Error fetching CSRF token:", error);
+    });
+
+    // Display success message if it exists in the query parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const message = urlParams.get('message');
+    if (message) {
+      document.getElementById('message').innerText = message;
+    }
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("login-username").value;
+      const password = document.getElementById("login-password").value;
+
+      try {
+        const response = await fetch("/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "CSRF-Token": csrfToken // Include CSRF token in the request headers
+          },
+          body: JSON.stringify({ username, password }),
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText);
+        }
+
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          const result = await response.json();
+          console.log("Login response:", result);
+          alert("Login successful");
+          // Redirect to home page with access token
+          window.location.href = `/home.html?accessToken=${result.accessToken}`;
+        } else {
+          throw new Error("Response is not JSON");
+        }
+      } catch (error) {
+        console.error("Login failed:", error);
+        alert(error.message);
+      }
+    });
+</script>
 </body>
 </html>
